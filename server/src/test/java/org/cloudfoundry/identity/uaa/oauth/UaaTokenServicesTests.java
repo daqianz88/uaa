@@ -1946,6 +1946,13 @@ public class UaaTokenServicesTests {
     }
 
     @Test
+    public void validate_token_client_gone() throws Exception {
+        expectedEx.expect(InvalidTokenException.class);
+        expectedEx.expectMessage("Invalid client ID "+defaultClient.getClientId());
+        test_validateToken_method(ignore -> clientDetailsService.setClientDetailsStore(emptyMap()));
+    }
+
+    @Test
     public void opaque_tokens_validate_signature() throws Exception {
         expectedEx.expect(InvalidTokenException.class);
         expectedEx.expectMessage("Invalid key ID: testKey");
