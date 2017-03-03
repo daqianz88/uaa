@@ -12,6 +12,7 @@
  *******************************************************************************/
 package org.cloudfoundry.identity.uaa.oauth;
 
+import org.cloudfoundry.identity.uaa.client.UaaScopes;
 import org.cloudfoundry.identity.uaa.oauth.client.ClientConstants;
 import org.cloudfoundry.identity.uaa.oauth.token.TokenConstants;
 import org.cloudfoundry.identity.uaa.security.DefaultSecurityContextAccessor;
@@ -48,7 +49,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import static java.util.Collections.emptySet;
 import static java.util.Collections.unmodifiableMap;
+import static java.util.Optional.ofNullable;
+import static org.cloudfoundry.identity.uaa.oauth.client.ClientConstants.REQUIRED_USER_GROUPS;
 import static org.springframework.security.oauth2.common.util.OAuth2Utils.GRANT_TYPE;
 
 /**
@@ -260,8 +264,9 @@ public class UaaAuthorizationRequestManager implements OAuth2RequestFactory {
      * @param authorities the users authorities
      * @return modified requested scopes adapted according to the rules specified
      */
-    private Set<String> checkUserScopes(Set<String> requestedScopes, Collection<? extends GrantedAuthority> authorities,
-                    ClientDetails clientDetails) {
+    private Set<String> checkUserScopes(Set<String> requestedScopes,
+                                        Collection<? extends GrantedAuthority> authorities,
+                                        ClientDetails clientDetails) {
         Set<String> allowed = new LinkedHashSet<>(AuthorityUtils.authorityListToSet(authorities));
         // Add in all default requestedScopes
         allowed.addAll(defaultScopes);
@@ -272,6 +277,12 @@ public class UaaAuthorizationRequestManager implements OAuth2RequestFactory {
         // Check that a token with empty scope is not going to be granted
         if (result.isEmpty() && !clientDetails.getScope().isEmpty()) {
             throw new InvalidScopeException(requestedScopes + " is invalid. This user is not allowed any of the requested scopes");
+        }
+
+        Collection<String> requiredUserGroups = ofNullable((Collection<String>) clientDetails.getAdditionalInformation().get(REQUIRED_USER_GROUPS)).orElse(emptySet());
+        Collection<String> userGroups = AuthorityUtils.authorityListToSet(authorities);
+        if (!new UaaScopes().hasMandatoryScopes(requiredUserGroups, userGroups)) {
+            throw new InvalidScopeException("User does not meet the client's required group criteria.");
         }
 
         return result;

@@ -22,6 +22,7 @@ import org.cloudfoundry.identity.uaa.audit.event.TokenIssuedEvent;
 import org.cloudfoundry.identity.uaa.authentication.Origin;
 import org.cloudfoundry.identity.uaa.authentication.UaaAuthentication;
 import org.cloudfoundry.identity.uaa.authentication.UaaPrincipal;
+import org.cloudfoundry.identity.uaa.client.UaaScopes;
 import org.cloudfoundry.identity.uaa.oauth.jwt.Jwt;
 import org.cloudfoundry.identity.uaa.oauth.jwt.JwtHelper;
 import org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants;
@@ -90,6 +91,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import static java.util.Collections.emptySet;
+import static java.util.Optional.ofNullable;
+import static org.cloudfoundry.identity.uaa.oauth.client.ClientConstants.REQUIRED_USER_GROUPS;
 import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.ACR;
 import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.ADDITIONAL_AZ_ATTR;
 import static org.cloudfoundry.identity.uaa.oauth.token.ClaimConstants.AMR;
@@ -613,12 +617,15 @@ public class UaaTokenServices implements AuthorizationServerTokenServices, Resou
         Date userAuthenticationTime = null;
         UaaUser user = null;
         boolean wasIdTokenRequestedThroughAuthCodeScopeParameter = false;
-        Collection<GrantedAuthority> clientScopes = null;
+
         Set<String> authenticationMethods = null;
         Set<String> authNContextClassRef = null;
+
+        ClientDetails client = clientDetailsService.loadClientByClientId(authentication.getOAuth2Request().getClientId());
+        Collection<GrantedAuthority> clientScopes = null;
+
         // Clients should really by different kinds of users
         if (authentication.isClientOnly()) {
-            ClientDetails client = clientDetailsService.loadClientByClientId(authentication.getName());
             clientScopes = client.getAuthorities();
         } else {
             userId = getUserId(authentication);
@@ -628,9 +635,10 @@ public class UaaTokenServices implements AuthorizationServerTokenServices, Resou
                 authenticationMethods = ((UaaAuthentication) authentication.getUserAuthentication()).getAuthenticationMethods();
                 authNContextClassRef = ((UaaAuthentication) authentication.getUserAuthentication()).getAuthContextClassRef();
             }
+            validateRequiredUserGroups(user, client);
         }
 
-        ClientDetails client = clientDetailsService.loadClientByClientId(authentication.getOAuth2Request().getClientId());
+
         String clientSecretForHash = client.getClientSecret();
         if(clientSecretForHash != null && clientSecretForHash.split(" ").length > 1){
             clientSecretForHash = clientSecretForHash.split(" ")[1];
@@ -713,6 +721,14 @@ public class UaaTokenServices implements AuthorizationServerTokenServices, Resou
                 authNContextClassRef);
 
         return persistRevocableToken(tokenId, refreshTokenId, accessToken, refreshToken, clientId, userId, opaque, accessTokenRevocable);
+    }
+
+    public void validateRequiredUserGroups(UaaUser user, ClientDetails client) {
+        Collection<String> requiredUserGroups = ofNullable((Collection<String>) client.getAdditionalInformation().get(REQUIRED_USER_GROUPS)).orElse(emptySet());
+        Collection<String> userGroups = AuthorityUtils.authorityListToSet(user.getAuthorities());
+        if (!new UaaScopes().hasMandatoryScopes(requiredUserGroups, userGroups)) {
+            throw new InvalidTokenException("User does not meet the client's required group criteria.");
+        }
     }
 
     public CompositeAccessToken persistRevocableToken(String tokenId,
